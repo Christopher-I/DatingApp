@@ -56,6 +56,31 @@ def accuracy(scores, labels, threshold: float = 0.5) -> float:
     return correct / len(labels)
 
 
+def _as_label(value) -> Label:
+    if isinstance(value, Label):
+        return value
+    if value in (1, "like", "LIKE"):
+        return Label.LIKE
+    return Label.PASS
+
+
+def evaluate_vectors(vectors, labels, classifier_factory=LogisticClassifier,
+                     seed: int = 0, test_frac: float = 0.2):
+    """Held-out AUC + accuracy directly on stored embedding vectors.
+
+    Used after calibration, when the store holds {vector, label} rows (photo-level,
+    not profile-level). `labels` may be `Label` values, 0/1, or 'like'/'pass'.
+    Returns (auc, accuracy).
+    """
+    idx = list(range(len(vectors)))
+    train_idx, test_idx = train_test_split(idx, test_frac, seed)
+    clf = classifier_factory()
+    clf.fit([vectors[i] for i in train_idx], [_as_label(labels[i]) for i in train_idx])
+    scores = [clf.predict_proba(vectors[i]) for i in test_idx]
+    labels01 = [1 if _as_label(labels[i]) == Label.LIKE else 0 for i in test_idx]
+    return roc_auc(scores, labels01), accuracy(scores, labels01)
+
+
 @dataclass
 class EmbedderReport:
     name: str

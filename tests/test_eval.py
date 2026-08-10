@@ -5,6 +5,7 @@ from copilot.eval import (
     accuracy,
     compare_embedders,
     evaluate_embedder,
+    evaluate_vectors,
     roc_auc,
     train_test_split,
 )
@@ -68,6 +69,17 @@ def test_evaluate_embedder_separates_when_data_is_separable():
     assert report.auc > 0.95
     assert report.n_test_profiles > 0
     assert report.n_train_photos > 0
+
+
+def test_evaluate_vectors_separable():
+    # 20 clearly-separable vectors per class -> high held-out AUC.
+    likes = [[1.0, 0.0] for _ in range(20)]
+    passes = [[0.0, 1.0] for _ in range(20)]
+    vectors = likes + passes
+    labels = ["like"] * 20 + ["pass"] * 20
+    auc, acc = evaluate_vectors(vectors, labels, seed=0)
+    assert auc > 0.95
+    assert acc > 0.9
 
 
 def test_compare_sorts_best_auc_first():
