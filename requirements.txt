@@ -12,8 +12,10 @@
 # --- Messaging drafter (optional; enables real LLM drafts) ---
 # anthropic>=0.116         # falls back to a deterministic stub if absent
 
-# --- Tinder web driver (optional; Phase 1 automation) ---
-# selenium>=4.18
+# --- Tinder driver (optional; Phase 1 automation) ---
+# playwright>=1.44            # recommended: attaches to your already-open Chrome
+#                            # (no `playwright install` needed — uses your Chrome)
+# selenium>=4.18             # alternative driver; spawns its own browser
 # undetected-chromedriver>=3.5
 
 # --- Data (production target; SQLite is used for local dev with no extra deps) ---

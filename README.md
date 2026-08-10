@@ -50,23 +50,32 @@ are not semantic — it proves the plumbing, not accuracy. For real scoring, set
 `COPILOT_EMBEDDER=clip` (needs `open_clip-torch` + `torch`) and drive real photos
 through a live driver.
 
-## Real calibration run (live Tinder + CLIP)
+## Real calibration run (attaches to your open Chrome)
 
-Needs the ML environment (torch + open_clip) and Selenium +
-undetected-chromedriver, plus a logged-in Chrome profile. This imports your likes
-as positives and reports how separable the data is so far:
+The recommended path attaches to the Chrome you already have open and logged in —
+no new browser, no second login, and it only runs while you run it (so it can't
+run with the PC closed). Needs the ML environment (torch + open_clip) and
+Playwright (the package only; it uses your Chrome, so no `playwright install`).
 
 ```bash
-pip install selenium undetected-chromedriver
+# 1. Quit Chrome fully, then relaunch it with the debug port:
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222
+
+# 2. In the project (ML env active):
+pip install playwright
 export COPILOT_EMBEDDER=clip
-python -m copilot.run_calibration --chrome-profile "/path/to/Chrome/Profile" --limit 300 --db copilot.db
+python -m copilot.run_calibration --limit 300 --db copilot.db
 ```
 
-The selectors in `copilot/drivers/tinder_web.py` (`_SEL`) are centralized and will
-drift with the site — verify them against the live DOM before a run. Negatives
-(passes) come from a labeling session, which needs live swipe capture and is the
-next piece to wire. Automating Tinder violates its ToS; it's your account and your
-risk.
+The selectors in `copilot/drivers/tinder_web.py` (`_SEL`, shared by both drivers)
+are centralized and will drift with the site — verify them against the live DOM
+before a run. Negatives (passes) come from a labeling session, which needs live
+swipe capture and is the next piece to wire. Automating Tinder violates its ToS;
+it's your account and your risk.
+
+A Selenium/undetected-chromedriver driver (`tinder_web.TinderWebDriver`) is also
+included as an alternative, but it spawns its own browser and profile — the
+attach-to-Chrome driver above avoids that.
 
 ## Configuration
 
@@ -86,7 +95,8 @@ for the demo or tests. Key switches:
 | `copilot/config.py` | Tunable thresholds, caps, windows, red-flag lists | done |
 | `copilot/drivers/base.py` | The `Driver` interface + `Profile`/`Conversation` | done |
 | `copilot/drivers/mock.py` | Deterministic offline driver for dev/tests | done |
-| `copilot/drivers/tinder_web.py` | Selenium + undetected-chromedriver: scrape my-likes, read recs deck, swipe | implemented — **DOM selectors need live verification** |
+| `copilot/drivers/tinder_cdp.py` | **Recommended** Tinder driver: attaches to your open Chrome (Playwright/CDP), scrapes my-likes, reads recs deck, swipes | implemented — **DOM selectors need live verification** |
+| `copilot/drivers/tinder_web.py` | Alternative Selenium driver (spawns its own browser) + shared selectors | implemented — **DOM selectors need live verification** |
 | `copilot/calibration.py` | Import likes, labeling session, fit-from-store | done |
 | `copilot/eval.py` | Train/test split, AUC/accuracy, embedder comparison | done |
 | `copilot/run_calibration.py` | Live entry point: import likes → fit → held-out AUC | done (needs live session) |

@@ -1,20 +1,21 @@
-"""Real calibration run against a live Tinder session.
+"""Real calibration run against your open Chrome (attach, no new browser).
 
-    python -m copilot.run_calibration --chrome-profile "/path/to/Chrome/Profile" \
-        --limit 300 --db copilot.db
+    # 1. Quit Chrome fully, then relaunch it with the debug port:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222
+    # 2. Then:
+    COPILOT_EMBEDDER=clip python -m copilot.run_calibration --limit 300 --db copilot.db
 
 What it does:
-  1. Opens your logged-in Chrome, scrapes the my-likes grid, and stores each
-     liked profile's photos as CLIP embeddings (positives). Photos are fetched,
-     embedded, and dropped — never written to disk.
+  1. Attaches to your already-logged-in Chrome, scrapes the my-likes grid, and
+     stores each liked profile's photos as CLIP embeddings (positives). Photos are
+     fetched, embedded, and dropped — never written to disk.
   2. Fits the classifier from the store and prints a held-out AUC so you can see
      how separable the data is so far.
 
-This needs the ML environment (torch + open_clip) and Selenium +
-undetected-chromedriver, and a real logged-in session. Set COPILOT_EMBEDDER=clip
-(or it defaults to the dependency-free hash embedder, whose numbers are
-meaningless). Automating Tinder violates its ToS; this is your account and your
-risk.
+Needs the ML environment (torch + open_clip) and Playwright (pip install
+playwright — no `playwright install` needed, it attaches to your Chrome). Set
+COPILOT_EMBEDDER=clip or it falls back to the hash embedder, whose numbers are
+meaningless. Automating Tinder violates its ToS; your account, your risk.
 
 Negatives (passes) come from a labeling session, which needs live swipe capture
 and is not wired here yet — this run gets the positives in and gives you a first
@@ -34,8 +35,7 @@ from .data.store import SQLiteStore
 from .eval import evaluate_vectors
 
 
-def run(chrome_profile: str | None, limit: int | None, db_path: str,
-        headless: bool = False) -> None:
+def run(cdp_url: str, limit: int | None, db_path: str) -> None:
     config: Config = from_env()
     embedder = get_embedder(config)
     if isinstance(embedder, HashEmbedder):
@@ -44,13 +44,12 @@ def run(chrome_profile: str | None, limit: int | None, db_path: str,
 
     store = SQLiteStore(db_path)
 
-    # Import defensively so this module still imports without selenium installed.
-    from .drivers.tinder_web import TinderWebDriver
+    # Import defensively so this module still imports without playwright installed.
+    from .drivers.tinder_cdp import TinderDriver
 
-    driver = TinderWebDriver(chrome_profile_dir=chrome_profile,
-                             headless=headless, source="likes")
-    print("opening Chrome and scraping my-likes... (verify selectors if this "
-          "finds nothing)")
+    driver = TinderDriver(cdp_url=cdp_url, source="likes")
+    print(f"attaching to Chrome at {cdp_url} and scraping my-likes... "
+          "(verify selectors if this finds nothing)")
     driver.start()
     try:
         result = import_likes(driver, embedder, store, app="tinder", limit=limit)
@@ -79,15 +78,15 @@ def run(chrome_profile: str | None, limit: int | None, db_path: str,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Calibrate from your Tinder likes.")
-    parser.add_argument("--chrome-profile", default=os.environ.get("COPILOT_CHROME_PROFILE"),
-                        help="Path to your logged-in Chrome profile directory.")
+    parser.add_argument("--cdp-url", default=os.environ.get("COPILOT_CDP_URL") or "http://localhost:9222",
+                        help="DevTools URL of your running Chrome (launch it with "
+                             "--remote-debugging-port=9222).")
     parser.add_argument("--limit", type=int, default=None,
                         help="Max liked profiles to import.")
     parser.add_argument("--db", default=os.environ.get("COPILOT_DB_PATH") or "copilot.db",
                         help="SQLite database path.")
-    parser.add_argument("--headless", action="store_true")
     args = parser.parse_args()
-    run(args.chrome_profile, args.limit, args.db, args.headless)
+    run(args.cdp_url, args.limit, args.db)
 
 
 if __name__ == "__main__":
