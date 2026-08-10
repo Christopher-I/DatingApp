@@ -23,24 +23,45 @@ violates its ToS; it's your account and your risk.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 
 from .base import Conversation, Direction, Driver, Profile
 from .tinder_web import _SEL, _BG_URL_RE, _parse_age
 
-# Fetch an image URL inside the page and return a data URL (browser cookies apply).
-_FETCH_JS = """async (url) => {
-  try {
-    const r = await fetch(url);
-    const b = await r.blob();
-    return await new Promise((res) => {
-      const fr = new FileReader();
-      fr.onloadend = () => res(String(fr.result));
-      fr.onerror = () => res(null);
-      fr.readAsDataURL(b);
+# Scroll the my-likes grid to the bottom, collecting each card's primary-photo
+# URL as it loads. Photos lazy-load (and the list may virtualize), so we grab
+# visible cards on every scroll step and dedupe, stopping when no new URLs appear
+# for several steps. Returns a list of image URLs.
+_COLLECT_LIKE_PHOTOS_JS = r"""async () => {
+  const urls = [];
+  const seen = new Set();
+  const parseBg = (el) => {
+    const bg = getComputedStyle(el).backgroundImage || '';
+    const m = bg.match(/url\(["']?(.*?)["']?\)/);
+    return (m && m[1].startsWith('http')) ? m[1] : null;
+  };
+  const grab = () => {
+    document.querySelectorAll('[data-testid="likesYouCard"] div[role="img"]').forEach((el) => {
+      const u = parseBg(el);
+      if (u && !seen.has(u)) { seen.add(u); urls.push(u); }
     });
-  } catch (e) { return null; }
+  };
+  const scrollers = [];
+  const s1 = document.querySelector('[class~="Ovy(s)"]');
+  if (s1) scrollers.push(s1);
+  scrollers.push(document.scrollingElement || document.documentElement);
+  let stable = 0;
+  for (let i = 0; i < 150 && stable < 4; i++) {
+    grab();
+    const before = urls.length;
+    for (const s of scrollers) {
+      try { s.scrollBy(0, Math.max(400, (s.clientHeight || 800) * 0.8)); } catch (e) {}
+    }
+    await new Promise((r) => setTimeout(r, 450));
+    if (urls.length === before) stable++; else stable = 0;
+  }
+  grab();
+  return urls;
 }"""
 
 
@@ -120,14 +141,16 @@ class TinderDriver(Driver):
         return match.group(1) if match else None
 
     def _fetch_image_bytes(self, url: str) -> bytes | None:
+        # Use Playwright's request API (shares the browser's cookies, and is not
+        # subject to page CORS), so cross-origin CDN images fetch cleanly.
         page = self._require_page()
-        data_url = page.evaluate(_FETCH_JS, url)
-        if not data_url or "," not in data_url:
-            return None
         try:
-            return base64.b64decode(data_url.split(",", 1)[1])
-        except (ValueError, TypeError):
+            resp = page.request.get(url)
+        except Exception:
             return None
+        if not resp.ok:
+            return None
+        return resp.body() or None
 
     def _photo_bytes_from(self, root) -> list[bytes]:
         urls: list[str] = []
@@ -152,40 +175,24 @@ class TinderDriver(Driver):
 
     # --- likes scraping --------------------------------------------------
     def _scrape_liked_profiles(self, limit: int | None) -> list[Profile]:
+        """Scroll the my-likes grid to load every card, collect each card's
+        primary-photo URL, and fetch the bytes. One primary photo per liked person
+        — a strong positive signal, and the spec weights the primary photo highest
+        anyway. (Grabbing all of a person's photos would mean opening each profile;
+        that can be layered on later.)"""
         page = self._require_page()
+        page.wait_for_timeout(1500)  # let the grid render before scrolling
+        urls = page.evaluate(_COLLECT_LIKE_PHOTOS_JS)
+        if limit is not None:
+            urls = urls[:limit]
         profiles: list[Profile] = []
-        count = len(self._css(_SEL["like_tile"]))
-        for index in range(count):
-            if limit is not None and len(profiles) >= limit:
-                break
-            current = self._css(_SEL["like_tile"])  # re-query; DOM changes on open
-            if index >= len(current):
-                break
-            tile = current[index]
-            try:
-                tile.click()
-            except Exception:
-                continue
-            photos = self._photo_bytes_from(page)
-            if not photos:
-                url = self._bg_image_url(tile)
-                if url:
-                    data = self._fetch_image_bytes(url)
-                    if data:
-                        photos = [data]
-            age = _parse_age(self._text_or_empty(_SEL["detail_age"]))
-            bio = self._text_or_empty(_SEL["detail_bio"])
-            if photos:
+        for index, url in enumerate(urls):
+            data = self._fetch_image_bytes(url)
+            if data:
                 profiles.append(Profile(
-                    external_ref=self._ref_from(photos, f"tinder-like-{index}"),
-                    photos=photos, age=age, bio_text=bio,
+                    external_ref=self._ref_from([data], f"tinder-like-{index}"),
+                    photos=[data], age=None, bio_text="",
                 ))
-            close = self._css(_SEL["detail_close"])
-            if close:
-                try:
-                    close[0].click()
-                except Exception:
-                    page.goto("https://tinder.com/app/my-likes")
         return profiles
 
     # --- Driver interface ------------------------------------------------

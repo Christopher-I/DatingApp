@@ -41,8 +41,9 @@ _SEL = {
     "like_button": 'button[aria-label="Like"]',
     "pass_button": 'button[aria-label="Nope"]',
     "superlike_button": 'button[aria-label="Super Like"]',
-    # my-likes grid
-    "like_tile": 'div[data-testid="likesYouCard"], div.likesYou__card',
+    # my-likes grid (verified 2026-08 against the live DOM)
+    "like_tile": '[data-testid="likesYouCard"]',
+    "like_photo": 'div[role="img"]',        # bg-image photo inside each card
     "tile_photo": 'div[style*="background-image"]',
     # opened profile detail (after clicking a tile / expanding a card)
     "detail_photo": 'div[style*="background-image"]',

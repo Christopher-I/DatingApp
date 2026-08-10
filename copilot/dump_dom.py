@@ -18,10 +18,17 @@ import os
 # text nodes removed; src/href/srcset redacted; background-image URLs redacted;
 # alt/title redacted; aria-label redacted EXCEPT on buttons/links (control labels
 # like "Like"/"Nope", which we need and which aren't personal).
+# Names appear inside button aria-labels ("Open <name>'s profile", "Super Like
+# <name>"), so normalize those to a name-free shape and redact ALL aria-label
+# values in the skeleton. The skeleton stays pure structure.
 _JS = r"""() => {
   const KEEP_ARIA = new Set(['button', 'a']);
   const testids = new Set();
   const buttonLabels = new Set();
+  const normLabel = (s) => s
+    .replace(/^Open .+'s profile$/, "Open <name>'s profile")
+    .replace(/^Super Like .+$/, 'Super Like <name>')
+    .replace(/^Like .+$/, 'Like <name>');
   function walk(node) {
     if (node.nodeType !== 1) return '';
     const tag = node.tagName.toLowerCase();
@@ -30,11 +37,11 @@ _JS = r"""() => {
     for (const a of node.attributes) {
       const n = a.name; let v = a.value;
       if (n === 'data-testid') testids.add(v);
-      if (n === 'aria-label' && KEEP_ARIA.has(tag)) buttonLabels.add(v);
+      if (n === 'aria-label' && KEEP_ARIA.has(tag)) buttonLabels.add(normLabel(v));
       if (n === 'src' || n === 'href' || n === 'srcset') v = 'REDACTED';
       else if (n === 'style') {
         if (v.includes('background-image')) v = 'background-image:REDACTED'; else continue;
-      } else if (n === 'aria-label' && !KEEP_ARIA.has(tag)) v = 'REDACTED';
+      } else if (n === 'aria-label') v = 'REDACTED';
       else if (n === 'alt' || n === 'title') v = 'REDACTED';
       attrs.push(n + '="' + v + '"');
     }
