@@ -1,0 +1,28 @@
+# --- Core (pure-Python, always needed) ---
+# The engine, scheduler, red-flag filter, and SQLite store run with the standard
+# library only. Everything below is optional and lazily imported.
+
+# --- Vision / ML (optional; enables the real CLIP embedder + classifier) ---
+# open_clip-torch>=2.24
+# torch>=2.2
+# pillow>=10.0
+# scikit-learn>=1.4        # logistic-regression classifier (falls back to centroid)
+# numpy>=1.26
+
+# --- Messaging drafter (optional; enables real LLM drafts) ---
+# anthropic>=0.116         # falls back to a deterministic stub if absent
+
+# --- Tinder web driver (optional; Phase 1 automation) ---
+# selenium>=4.18
+# undetected-chromedriver>=3.5
+
+# --- Data (production target; SQLite is used for local dev with no extra deps) ---
+# psycopg[binary]>=3.1     # Supabase / Postgres + pgvector
+# supabase>=2.4
+
+# --- Dashboard (optional) ---
+# fastapi>=0.110
+# uvicorn>=0.29
+
+# --- Dev ---
+# pytest>=8.0
