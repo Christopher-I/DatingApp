@@ -50,6 +50,24 @@ are not semantic — it proves the plumbing, not accuracy. For real scoring, set
 `COPILOT_EMBEDDER=clip` (needs `open_clip-torch` + `torch`) and drive real photos
 through a live driver.
 
+## Real calibration run (live Tinder + CLIP)
+
+Needs the ML environment (torch + open_clip) and Selenium +
+undetected-chromedriver, plus a logged-in Chrome profile. This imports your likes
+as positives and reports how separable the data is so far:
+
+```bash
+pip install selenium undetected-chromedriver
+export COPILOT_EMBEDDER=clip
+python -m copilot.run_calibration --chrome-profile "/path/to/Chrome/Profile" --limit 300 --db copilot.db
+```
+
+The selectors in `copilot/drivers/tinder_web.py` (`_SEL`) are centralized and will
+drift with the site — verify them against the live DOM before a run. Negatives
+(passes) come from a labeling session, which needs live swipe capture and is the
+next piece to wire. Automating Tinder violates its ToS; it's your account and your
+risk.
+
 ## Configuration
 
 Copy `.env.example` to `.env`. Everything has a safe default; nothing is required
@@ -68,7 +86,10 @@ for the demo or tests. Key switches:
 | `copilot/config.py` | Tunable thresholds, caps, windows, red-flag lists | done |
 | `copilot/drivers/base.py` | The `Driver` interface + `Profile`/`Conversation` | done |
 | `copilot/drivers/mock.py` | Deterministic offline driver for dev/tests | done |
-| `copilot/drivers/tinder_web.py` | Selenium + undetected-chromedriver | **skeleton** — DOM selectors need live verification |
+| `copilot/drivers/tinder_web.py` | Selenium + undetected-chromedriver: scrape my-likes, read recs deck, swipe | implemented — **DOM selectors need live verification** |
+| `copilot/calibration.py` | Import likes, labeling session, fit-from-store | done |
+| `copilot/eval.py` | Train/test split, AUC/accuracy, embedder comparison | done |
+| `copilot/run_calibration.py` | Live entry point: import likes → fit → held-out AUC | done (needs live session) |
 | `copilot/brain/embeddings.py` | `HashEmbedder` (dev) + `ClipEmbedder` (real) | done |
 | `copilot/brain/matcher.py` | Classifier + profile aggregation + thresholds | done |
 | `copilot/brain/redflags.py` | Bio keyword/similarity + image-vibe hard-pass | done |
