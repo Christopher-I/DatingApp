@@ -78,7 +78,7 @@ def run(cdp_url: str, limit: int | None, db_path: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Calibrate from your Tinder likes.")
-    parser.add_argument("--cdp-url", default=os.environ.get("COPILOT_CDP_URL") or "http://localhost:9222",
+    parser.add_argument("--cdp-url", default=os.environ.get("COPILOT_CDP_URL") or "http://127.0.0.1:9222",
                         help="DevTools URL of your running Chrome (launch it with "
                              "--remote-debugging-port=9222).")
     parser.add_argument("--limit", type=int, default=None,

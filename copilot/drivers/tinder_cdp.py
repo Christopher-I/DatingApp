@@ -47,8 +47,10 @@ _FETCH_JS = """async (url) => {
 class TinderDriver(Driver):
     name = "tinder"
 
-    def __init__(self, cdp_url: str = "http://localhost:9222",
+    def __init__(self, cdp_url: str = "http://127.0.0.1:9222",
                  source: str = "recs", fetch_timeout_ms: int = 15000) -> None:
+        # Note: use 127.0.0.1, not localhost — Chrome's debug port binds to IPv4,
+        # and localhost can resolve to IPv6 (::1) first, giving ECONNREFUSED.
         self._cdp_url = cdp_url
         self.source = source            # "recs" or "likes"
         self._fetch_timeout_ms = fetch_timeout_ms
