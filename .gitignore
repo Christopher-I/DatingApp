@@ -3,6 +3,8 @@ __pycache__/
 .env
 *.db
 *.sqlite3
+dom_dump.html
+*_dump.html
 .venv/
 .venv-ml/
 .venv*/
