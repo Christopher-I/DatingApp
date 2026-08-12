@@ -26,7 +26,59 @@ from __future__ import annotations
 import hashlib
 
 from .base import Conversation, Direction, Driver, Profile
-from .tinder_web import _SEL, _BG_URL_RE, _parse_age
+from .tinder_web import _SEL, _parse_age
+
+# The active recs card and its primary photo + age. The deck keeps a couple of
+# cards in the DOM; the current one is aria-hidden="false".
+_RECS_CARD_JS = r"""() => {
+  const card = document.querySelector('.recsCardboard__cards div[data-keyboard-gamepad][aria-hidden="false"]')
+            || document.querySelector('.recsCardboard__cards div[data-keyboard-gamepad]');
+  if (!card) return { url: null, age: '' };
+  const img = card.querySelector('div[role="img"]');
+  const bg = img ? (getComputedStyle(img).backgroundImage || '') : '';
+  const m = bg.match(/url\(["']?(.*?)["']?\)/);
+  const url = (m && m[1].startsWith('http')) ? m[1] : null;
+  const ageEl = card.querySelector('span[itemprop="age"]');
+  return { url, age: ageEl ? (ageEl.textContent || '') : '' };
+}"""
+
+# Observe the owner's own swipes (he swipes manually with the X / heart buttons or
+# arrow keys). A single delegated listener records each swipe's direction into a
+# log the session polls. Capture phase so it fires even if React stops bubbling.
+# Button identity comes from the gamepad style classes; order matters —
+# "super-like" contains "like", so check it before "like-default".
+_SWIPE_HOOK_JS = r"""() => {
+  if (window.__swipeHook) return true;
+  window.__swipeHook = true;
+  window.__swipeLog = [];
+  const dirFromButton = (el) => {
+    const b = el.closest && el.closest('button');
+    if (!b) return null;
+    const c = b.className || '';
+    if (c.includes('gamepad-sparks-nope')) return 'pass';
+    if (c.includes('gamepad-sparks-super-like')) return 'superlike';
+    if (c.includes('gamepad-sparks-like-default')) return 'like';
+    // backstop: the hidden a11y label inside the button ("Nope"/"Like"/"Super Like")
+    const hidden = b.querySelector('.Hidden');
+    const t = hidden ? (hidden.textContent || '').trim().toLowerCase() : '';
+    if (t === 'nope') return 'pass';
+    if (t === 'like') return 'like';
+    if (t === 'super like') return 'superlike';
+    return null;
+  };
+  document.addEventListener('click', (e) => {
+    const d = dirFromButton(e.target);
+    if (d) window.__swipeLog.push({ dir: d, t: Date.now() });
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    let d = null;
+    if (e.key === 'ArrowLeft') d = 'pass';
+    else if (e.key === 'ArrowRight') d = 'like';
+    else if (e.key === 'ArrowUp') d = 'superlike';
+    if (d) window.__swipeLog.push({ dir: d, t: Date.now() });
+  }, true);
+  return true;
+}"""
 
 # Collect each liked person's primary-photo URL. The cards are all in the DOM,
 # but their photos lazy-load only when scrolled into view (an unloaded card has no
@@ -135,17 +187,6 @@ class TinderDriver(Driver):
         root = root or self._require_page()
         return root.query_selector_all(selector)
 
-    def _text_or_empty(self, selector: str, root=None) -> str:
-        found = self._css(selector, root)
-        return found[0].inner_text().strip() if found else ""
-
-    def _bg_image_url(self, element) -> str | None:
-        style = element.evaluate("e => getComputedStyle(e).backgroundImage")
-        if not style or style == "none":
-            return None
-        match = _BG_URL_RE.search(style)
-        return match.group(1) if match else None
-
     def _fetch_image_bytes(self, url: str) -> bytes | None:
         # Use Playwright's request API (shares the browser's cookies, and is not
         # subject to page CORS), so cross-origin CDN images fetch cleanly.
@@ -158,20 +199,21 @@ class TinderDriver(Driver):
             return None
         return resp.body() or None
 
-    def _photo_bytes_from(self, root) -> list[bytes]:
-        urls: list[str] = []
-        seen: set[str] = set()
-        for el in self._css(_SEL["detail_photo"], root):
-            url = self._bg_image_url(el)
-            if url and url.startswith("http") and url not in seen:
-                seen.add(url)
-                urls.append(url)
-        photos: list[bytes] = []
-        for url in urls:
-            data = self._fetch_image_bytes(url)
-            if data:
-                photos.append(data)
-        return photos
+    # --- recs deck (labeling) -------------------------------------------
+    def install_swipe_hook(self) -> None:
+        """Inject the listener that records the owner's manual swipes."""
+        self._require_page().evaluate(_SWIPE_HOOK_JS)
+
+    def read_swipe_log(self) -> list[dict]:
+        """Return all swipe events observed so far: [{dir, t}, ...]."""
+        return self._require_page().evaluate("() => window.__swipeLog || []")
+
+    def current_card(self) -> dict:
+        """{'url': primary-photo URL | None, 'age': str} for the active recs card."""
+        return self._require_page().evaluate(_RECS_CARD_JS)
+
+    def fetch_photo(self, url: str) -> bytes | None:
+        return self._fetch_image_bytes(url)
 
     @staticmethod
     def _ref_from(photos: list[bytes], fallback: str) -> str:
@@ -208,40 +250,30 @@ class TinderDriver(Driver):
                 self._likes_queue = self._scrape_liked_profiles(limit=None)
             return self._likes_queue.pop(0) if self._likes_queue else None
 
-        cards = self._css(_SEL["card"])
-        if not cards:
+        card = self.current_card()
+        url = card.get("url") if card else None
+        if not url:
             return None
-        card = cards[0]
-        for _ in range(8):
-            nxt = self._css(_SEL["next_photo"], card)
-            if not nxt:
-                break
-            try:
-                nxt[0].click()
-            except Exception:
-                break
-        photos = self._photo_bytes_from(card)
-        if not photos:
+        photo = self._fetch_image_bytes(url)
+        if not photo:
             return None
-        age = _parse_age(self._text_or_empty(_SEL["card_age"], card))
-        bio = self._text_or_empty(_SEL["card_bio"], card)
         return Profile(
-            external_ref=self._ref_from(photos, "tinder-card"),
-            photos=photos, age=age, bio_text=bio,
+            external_ref=self._ref_from([photo], "tinder-rec"),
+            photos=[photo], age=_parse_age(card.get("age") or ""), bio_text="",
         )
 
     def swipe(self, direction: Direction) -> Direction:
+        # Used only by autopilot; the labeling session observes the owner's own
+        # manual swipes instead. Arrow keys are Tinder's own shortcuts and are far
+        # more stable than the icon-only buttons.
         if self.source != "recs":
             raise RuntimeError("swipe() is only valid on the recs deck (source='recs')")
-        selector = {
-            Direction.LIKE: _SEL["like_button"],
-            Direction.PASS: _SEL["pass_button"],
-            Direction.SUPERLIKE: _SEL["superlike_button"],
+        key = {
+            Direction.LIKE: "ArrowRight",
+            Direction.PASS: "ArrowLeft",
+            Direction.SUPERLIKE: "ArrowUp",
         }[direction]
-        buttons = self._css(selector)
-        if not buttons:
-            raise RuntimeError(f"swipe button not found: {selector}")
-        buttons[0].click()
+        self._require_page().keyboard.press(key)
         return direction
 
     def open_conversations(self) -> list[Conversation]:
