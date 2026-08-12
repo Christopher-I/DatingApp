@@ -18,6 +18,7 @@ create table if not exists swipe_labels (
     embedding text not null,          -- JSON array of floats
     label text not null check (label in ('like','pass')),
     primary_flag integer not null default 0,
+    source text,                      -- capture pipeline: my_likes | recs | folder
     created_at text not null default (datetime('now'))
 );
 create table if not exists profiles_seen (
@@ -59,28 +60,41 @@ class SQLiteStore:
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(_SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        # Add the `source` column to pre-existing databases created before it.
+        cols = [r[1] for r in self.conn.execute("pragma table_info(swipe_labels)")]
+        if "source" not in cols:
+            self.conn.execute("alter table swipe_labels add column source text")
 
     def close(self) -> None:
         self.conn.close()
 
     # --- swipe labels / continuous learning -----------------------------
     def add_swipe_label(self, app: str, embedding, label: str,
-                        primary: bool = False) -> None:
+                        primary: bool = False, source: str | None = None) -> None:
         self.conn.execute(
-            "insert into swipe_labels (app, embedding, label, primary_flag) "
-            "values (?, ?, ?, ?)",
-            (app, json.dumps(list(embedding)), label, int(primary)),
+            "insert into swipe_labels (app, embedding, label, primary_flag, source) "
+            "values (?, ?, ?, ?, ?)",
+            (app, json.dumps(list(embedding)), label, int(primary), source),
         )
         self.conn.commit()
 
-    def get_swipe_labels(self, app: str | None = None) -> list[tuple[list[float], str]]:
+    def get_swipe_labels(self, app: str | None = None,
+                         source: str | None = None) -> list[tuple[list[float], str]]:
+        clauses, params = [], []
         if app:
-            rows = self.conn.execute(
-                "select embedding, label from swipe_labels where app = ?", (app,)
-            )
-        else:
-            rows = self.conn.execute("select embedding, label from swipe_labels")
+            clauses.append("app = ?")
+            params.append(app)
+        if source:
+            clauses.append("source = ?")
+            params.append(source)
+        where = (" where " + " and ".join(clauses)) if clauses else ""
+        rows = self.conn.execute(
+            f"select embedding, label from swipe_labels{where} order by id", params
+        )
         return [(json.loads(r["embedding"]), r["label"]) for r in rows]
 
     # --- audit log -------------------------------------------------------

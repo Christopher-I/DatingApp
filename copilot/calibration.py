@@ -34,7 +34,7 @@ _IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
 
 def import_image_files(folder: str, embedder, store, label: Label = Label.PASS,
-                       app: str = "tinder") -> int:
+                       app: str = "tinder", source: str = "folder") -> int:
     """Embed every image in `folder` and store it under `label`. Lets the owner
     seed examples from a folder of saved photos (e.g. hand-picked "no" examples)
     without swiping. Returns the number of images imported. Images are read,
@@ -50,7 +50,7 @@ def import_image_files(folder: str, embedder, store, label: Label = Label.PASS,
             vector = embedder.embed_image(data)
         except Exception:
             continue  # skip unreadable/undecodable files
-        store.add_swipe_label(app, vector, label_value, primary=True)
+        store.add_swipe_label(app, vector, label_value, primary=True, source=source)
         count += 1
     return count
 
@@ -62,7 +62,7 @@ class ImportResult:
 
 
 def import_likes(driver, embedder, store, app: str = "tinder",
-                 limit: int | None = None) -> ImportResult:
+                 limit: int | None = None, source: str = "my_likes") -> ImportResult:
     """Capture every profile the driver serves as a positive example."""
     profiles = 0
     labels = 0
@@ -74,7 +74,7 @@ def import_likes(driver, embedder, store, app: str = "tinder",
         for i, photo in enumerate(profile.photos):
             store.add_swipe_label(
                 app, embedder.embed_image(photo), Label.LIKE.value,
-                primary=(i == profile.primary_index),
+                primary=(i == profile.primary_index), source=source,
             )
             labels += 1
     return ImportResult(profiles=profiles, labels=labels)

@@ -67,7 +67,8 @@ def run(cdp_url: str, db_path: str, limit: int) -> None:
                 label = Label.LIKE if direction in ("like", "superlike") else Label.PASS
                 for photo in pending.photos:
                     store.add_swipe_label(
-                        "tinder", embedder.embed_image(photo), label.value, primary=True
+                        "tinder", embedder.embed_image(photo), label.value,
+                        primary=True, source="recs",
                     )
                 if label == Label.LIKE:
                     likes += 1
@@ -95,15 +96,20 @@ def run(cdp_url: str, db_path: str, limit: int) -> None:
     fit = fit_from_store(store, matcher)
     print(f"\nstore now holds like={fit.likes} pass={fit.passes}; "
           f"classifier ready={fit.ready}")
-    if fit.likes and fit.passes:
-        data = store.get_swipe_labels("tinder")
-        vectors = [v for v, _ in data]
-        labels = [l for _, l in data]
-        auc, acc = evaluate_vectors(vectors, labels)
-        print(f"held-out: AUC={auc:.3f}  acc@.5={acc:.3f}  "
-              "(0.5 = coin flip, 1.0 = perfect)")
+
+    # The honest number: recs-labeled only, so both classes came from the same
+    # capture pipeline (no my-likes-vs-recs source confound). This is the one to
+    # trust, and it firms up as you label more.
+    recs = store.get_swipe_labels("tinder", source="recs")
+    recs_like = sum(1 for _, l in recs if l == "like")
+    recs_pass = len(recs) - recs_like
+    if recs_like and recs_pass:
+        auc, acc = evaluate_vectors([v for v, _ in recs], [l for _, l in recs])
+        print(f"HONEST (recs-only, {len(recs)} labels: {recs_like} like / "
+              f"{recs_pass} pass): AUC={auc:.3f}  acc@.5={acc:.3f}")
+        print("  (0.5 = coin flip, 1.0 = perfect; needs a few hundred labels to be stable)")
     else:
-        print("still missing one class — keep swiping to balance likes and passes.")
+        print("keep swiping — need both likes and passes in the recs set for an honest score.")
     store.close()
 
 

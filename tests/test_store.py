@@ -13,6 +13,19 @@ def test_swipe_labels_roundtrip():
     store.close()
 
 
+def test_swipe_labels_filter_by_source():
+    store = SQLiteStore(":memory:")
+    store.add_swipe_label("tinder", [0.1], "like", source="my_likes")
+    store.add_swipe_label("tinder", [0.2], "like", source="recs")
+    store.add_swipe_label("tinder", [0.3], "pass", source="recs")
+    assert len(store.get_swipe_labels("tinder")) == 3
+    recs = store.get_swipe_labels("tinder", source="recs")
+    assert len(recs) == 2
+    assert {label for _, label in recs} == {"like", "pass"}
+    assert len(store.get_swipe_labels("tinder", source="my_likes")) == 1
+    store.close()
+
+
 def test_settings_roundtrip():
     store = SQLiteStore(":memory:")
     store.set_setting("high_threshold", 0.72)
