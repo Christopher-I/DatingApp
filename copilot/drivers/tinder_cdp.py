@@ -28,39 +28,45 @@ import hashlib
 from .base import Conversation, Direction, Driver, Profile
 from .tinder_web import _SEL, _BG_URL_RE, _parse_age
 
-# Scroll the my-likes grid to the bottom, collecting each card's primary-photo
-# URL as it loads. Photos lazy-load (and the list may virtualize), so we grab
-# visible cards on every scroll step and dedupe, stopping when no new URLs appear
-# for several steps. Returns a list of image URLs.
+# Collect each liked person's primary-photo URL. The cards are all in the DOM,
+# but their photos lazy-load only when scrolled into view (an unloaded card has no
+# div[role="img"] yet). So we bring each card into view, poll briefly for its
+# image, and collect the URL; between rounds we scroll to the bottom in case the
+# grid pages in more cards, stopping when the card count stops growing.
 _COLLECT_LIKE_PHOTOS_JS = r"""async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const urls = [];
   const seen = new Set();
   const parseBg = (el) => {
-    const bg = getComputedStyle(el).backgroundImage || '';
-    const m = bg.match(/url\(["']?(.*?)["']?\)/);
+    if (!el) return null;
+    const m = (getComputedStyle(el).backgroundImage || '').match(/url\(["']?(.*?)["']?\)/);
     return (m && m[1].startsWith('http')) ? m[1] : null;
   };
-  const grab = () => {
-    document.querySelectorAll('[data-testid="likesYouCard"] div[role="img"]').forEach((el) => {
-      const u = parseBg(el);
+  const collect = () => {
+    document.querySelectorAll('[data-testid="likesYouCard"]').forEach((card) => {
+      const u = parseBg(card.querySelector('div[role="img"]'));
       if (u && !seen.has(u)) { seen.add(u); urls.push(u); }
     });
   };
-  const scrollers = [];
-  const s1 = document.querySelector('[class~="Ovy(s)"]');
-  if (s1) scrollers.push(s1);
-  scrollers.push(document.scrollingElement || document.documentElement);
-  let stable = 0;
-  for (let i = 0; i < 150 && stable < 4; i++) {
-    grab();
-    const before = urls.length;
-    for (const s of scrollers) {
-      try { s.scrollBy(0, Math.max(400, (s.clientHeight || 800) * 0.8)); } catch (e) {}
+  const scroller = document.querySelector('[class~="Ovy(s)"]')
+    || document.scrollingElement || document.documentElement;
+  let lastCount = -1, stable = 0;
+  for (let round = 0; round < 80 && stable < 3; round++) {
+    const cards = Array.from(document.querySelectorAll('[data-testid="likesYouCard"]'));
+    for (const card of cards) {
+      card.scrollIntoView({ block: 'center' });
+      // poll up to ~1s for this card's lazy image to appear
+      for (let t = 0; t < 10 && !parseBg(card.querySelector('div[role="img"]')); t++) {
+        await sleep(100);
+      }
     }
-    await new Promise((r) => setTimeout(r, 450));
-    if (urls.length === before) stable++; else stable = 0;
+    collect();
+    try { scroller.scrollTo(0, scroller.scrollHeight); } catch (e) {}
+    await sleep(500);
+    const count = document.querySelectorAll('[data-testid="likesYouCard"]').length;
+    if (count === lastCount) stable++; else { stable = 0; lastCount = count; }
   }
-  grab();
+  collect();
   return urls;
 }"""
 
