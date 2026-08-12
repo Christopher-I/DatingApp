@@ -23,11 +23,36 @@ production (driven by his left/right in the browser); tests pass a function.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Callable
 
 from .brain.matcher import Label
 from .drivers.base import Direction, Profile
+
+_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def import_image_files(folder: str, embedder, store, label: Label = Label.PASS,
+                       app: str = "tinder") -> int:
+    """Embed every image in `folder` and store it under `label`. Lets the owner
+    seed examples from a folder of saved photos (e.g. hand-picked "no" examples)
+    without swiping. Returns the number of images imported. Images are read,
+    embedded, and dropped — never copied anywhere."""
+    label_value = label.value if isinstance(label, Label) else label
+    count = 0
+    for name in sorted(os.listdir(folder)):
+        if not name.lower().endswith(_IMAGE_EXTS):
+            continue
+        try:
+            with open(os.path.join(folder, name), "rb") as fh:
+                data = fh.read()
+            vector = embedder.embed_image(data)
+        except Exception:
+            continue  # skip unreadable/undecodable files
+        store.add_swipe_label(app, vector, label_value, primary=True)
+        count += 1
+    return count
 
 
 @dataclass
