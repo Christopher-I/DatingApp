@@ -161,20 +161,33 @@ class TinderDriver(Driver):
 
         context = (self._browser.contexts[0] if self._browser.contexts
                    else self._browser.new_context())
-        self._page = context.pages[0] if context.pages else context.new_page()
+        pages = list(context.pages)
+        # Prefer the actual Tinder tab rather than whatever happens to be first.
+        tinder = [p for p in pages if "tinder.com" in (p.url or "")]
+        self._page = tinder[0] if tinder else (pages[0] if pages else context.new_page())
         self._page.set_default_timeout(self._fetch_timeout_ms)
         landing = ("https://tinder.com/app/my-likes" if self.source == "likes"
                    else "https://tinder.com/app/recs")
-        self._page.goto(landing)
+        target = "my-likes" if self.source == "likes" else "/app/recs"
+        # Only navigate if not already there — reloading a live deck can drop it.
+        if target not in (self._page.url or ""):
+            self._page.goto(landing)
 
     def stop(self) -> None:
         # Disconnect Playwright but leave the owner's Chrome open and untouched.
-        if self._browser is not None:
-            self._browser.close()
-            self._browser = None
-        if self._pw is not None:
-            self._pw.stop()
-            self._pw = None
+        # Defensive: the tab/browser may already be gone.
+        try:
+            if self._browser is not None:
+                self._browser.close()
+        except Exception:
+            pass
+        self._browser = None
+        try:
+            if self._pw is not None:
+                self._pw.stop()
+        except Exception:
+            pass
+        self._pw = None
         self._page = None
 
     def _require_page(self):

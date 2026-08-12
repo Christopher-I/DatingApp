@@ -117,6 +117,12 @@ def run(cdp_url: str, db_path: str, limit: int, refit_every: int) -> None:
             time.sleep(0.25)
     except KeyboardInterrupt:
         print("\nstopped.")
+    except Exception as exc:
+        if "closed" in str(exc).lower() or "TargetClosed" in type(exc).__name__:
+            print("\nThe Tinder tab/Chrome was closed — stopping. Everything "
+                  "captured so far is saved. Reopen the deck and rerun to continue.")
+        else:
+            raise
     finally:
         driver.stop()
 
