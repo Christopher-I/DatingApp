@@ -92,13 +92,12 @@ def test_calibrate_skip_threshold_separable():
     assert thr > 0.0  # there is a region below which auto-skip loses no likes
 
 
-def test_calibrate_skip_threshold_no_signal():
+def test_calibrate_skip_threshold_guards():
     from copilot.eval import calibrate_skip_threshold
 
-    # Identical vectors for both classes -> no safe skip region.
-    v = [[0.5, 0.5] for _ in range(20)]
-    thr = calibrate_skip_threshold(v, ["like"] * 10 + ["pass"] * 10)
-    assert thr == 0.0
+    # No likes to protect, or no data at all -> no auto-skip region (0.0).
+    assert calibrate_skip_threshold([[1.0, 0.0]] * 5, ["pass"] * 5) == 0.0
+    assert calibrate_skip_threshold([], []) == 0.0
 
 
 def test_compare_sorts_best_auc_first():
