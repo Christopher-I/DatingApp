@@ -54,15 +54,18 @@ _JS = r"""() => {
 }"""
 
 
-def run(cdp_url: str, out_path: str, url: str, wait_ms: int = 3500) -> None:
+def run(cdp_url: str, out_path: str, url: str, wait_ms: int = 3500,
+        no_nav: bool = False) -> None:
     from .drivers.tinder_cdp import TinderDriver
 
     driver = TinderDriver(cdp_url=cdp_url, source="likes")
-    driver.start()
+    driver.start(navigate=not no_nav)
     try:
         page = driver._page
-        page.goto(url)
+        if not no_nav:
+            page.goto(url)
         page.wait_for_timeout(wait_ms)
+        url = page.url  # record whatever's actually on screen
         result = page.evaluate(_JS)
     finally:
         driver.stop()
@@ -83,8 +86,10 @@ def main() -> None:
     parser.add_argument("--cdp-url", default=os.environ.get("COPILOT_CDP_URL") or "http://127.0.0.1:9222")
     parser.add_argument("--url", default="https://tinder.com/app/my-likes")
     parser.add_argument("--out", default="dom_dump.html")
+    parser.add_argument("--no-nav", action="store_true",
+                        help="Dump whatever's already on screen (don't navigate).")
     args = parser.parse_args()
-    run(args.cdp_url, args.out, args.url)
+    run(args.cdp_url, args.out, args.url, no_nav=args.no_nav)
 
 
 if __name__ == "__main__":
