@@ -82,6 +82,25 @@ def test_evaluate_vectors_separable():
     assert acc > 0.9
 
 
+def test_calibrate_skip_threshold_separable():
+    from copilot.eval import calibrate_skip_threshold
+
+    # Separable: likes score high, passes low -> a safe skip cutoff exists between.
+    likes = [[1.0, 0.0] for _ in range(20)]
+    passes = [[0.0, 1.0] for _ in range(20)]
+    thr = calibrate_skip_threshold(likes + passes, ["like"] * 20 + ["pass"] * 20)
+    assert thr > 0.0  # there is a region below which auto-skip loses no likes
+
+
+def test_calibrate_skip_threshold_no_signal():
+    from copilot.eval import calibrate_skip_threshold
+
+    # Identical vectors for both classes -> no safe skip region.
+    v = [[0.5, 0.5] for _ in range(20)]
+    thr = calibrate_skip_threshold(v, ["like"] * 10 + ["pass"] * 10)
+    assert thr == 0.0
+
+
 def test_compare_sorts_best_auc_first():
     from copilot.brain.embeddings import HashEmbedder
 

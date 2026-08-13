@@ -81,6 +81,40 @@ def evaluate_vectors(vectors, labels, classifier_factory=LogisticClassifier,
     return roc_auc(scores, labels01), accuracy(scores, labels01)
 
 
+def calibrate_skip_threshold(vectors, labels, target_miss: float = 0.05,
+                             folds: int = 5, seed: int = 0) -> float:
+    """Highest auto-skip cutoff whose like-miss rate stays <= target_miss.
+
+    Uses k-fold CV to get honest out-of-sample p_like for every example, then
+    returns the largest p_like below which auto-passing is "safe" (loses at most
+    `target_miss` of your likes). 0.0 means no safe auto-skip region exists.
+    """
+    labs = [1 if _as_label(l) == Label.LIKE else 0 for l in labels]
+    n = len(vectors)
+    if n == 0 or sum(labs) == 0:
+        return 0.0
+    idx = list(range(n))
+    random.Random(seed).shuffle(idx)
+    scores = [0.5] * n
+    for f in range(folds):
+        test = set(idx[f::folds])
+        train = [i for i in idx if i not in test]
+        if not train or not test:
+            continue
+        clf = LogisticClassifier()
+        clf.fit([vectors[i] for i in train], [_as_label(labels[i]) for i in train])
+        for i in test:
+            scores[i] = clf.predict_proba(vectors[i])
+    n_likes = sum(labs)
+    best = 0.0
+    for step in range(10, 60):
+        t = step / 100.0
+        miss = sum(1 for s, l in zip(scores, labs) if l == 1 and s < t) / n_likes
+        if miss <= target_miss:
+            best = t
+    return best
+
+
 @dataclass
 class EmbedderReport:
     name: str
